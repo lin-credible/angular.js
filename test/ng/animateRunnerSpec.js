@@ -162,6 +162,42 @@ describe("$$AnimateRunner", function() {
     expect(animationFailed).toBe(true);
   }));
 
+  it("should use timeouts to trigger async operations when the document is hidden", function() {
+    var hidden = true;
+
+    module(function($provide) {
+
+      $provide.value('$$isDocumentHidden', function() {
+        return hidden;
+      });
+    });
+
+    inject(function($$AnimateRunner, $rootScope, $$rAF, $timeout) {
+      var spy = jasmine.createSpy();
+      var runner = new $$AnimateRunner();
+      runner.done(spy);
+      runner.complete(true);
+      expect(spy).not.toHaveBeenCalled();
+      $$rAF.flush();
+      expect(spy).not.toHaveBeenCalled();
+      $timeout.flush();
+      expect(spy).toHaveBeenCalled();
+
+      hidden = false;
+
+      spy = jasmine.createSpy();
+      runner = new $$AnimateRunner();
+      runner.done(spy);
+      runner.complete(true);
+      expect(spy).not.toHaveBeenCalled();
+      $$rAF.flush();
+      expect(spy).toHaveBeenCalled();
+      expect(function() {
+        $timeout.flush();
+      }).toThrow();
+    });
+  });
+
   they("should expose the `finally` promise function to handle the final state when $prop",
     { 'rejected': 'cancel', 'resolved': 'end' }, function(method) {
     inject(function($$AnimateRunner, $rootScope) {
@@ -169,7 +205,7 @@ describe("$$AnimateRunner", function() {
         var animationComplete = false;
         runner.finally(function() {
           animationComplete = true;
-        });
+        }).catch(noop);
         runner[method]();
         $rootScope.$digest();
         expect(animationComplete).toBe(true);

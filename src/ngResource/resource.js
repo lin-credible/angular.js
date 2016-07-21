@@ -56,7 +56,21 @@ function shallowClearAndCopy(src, dst) {
  *
  * <div doc-module-components="ngResource"></div>
  *
- * See {@link ngResource.$resource `$resource`} for usage.
+ * See {@link ngResource.$resourceProvider} and {@link ngResource.$resource} for usage.
+ */
+
+/**
+ * @ngdoc provider
+ * @name $resourceProvider
+ *
+ * @description
+ *
+ * Use `$resourceProvider` to change the default behavior of the {@link ngResource.$resource}
+ * service.
+ *
+ * ## Dependencies
+ * Requires the {@link ngResource } module to be installed.
+ *
  */
 
 /**
@@ -65,6 +79,7 @@ function shallowClearAndCopy(src, dst) {
  * @requires $http
  * @requires ng.$log
  * @requires $q
+ * @requires ng.$timeout
  *
  * @description
  * A factory which creates a resource object that lets you interact with
@@ -99,8 +114,9 @@ function shallowClearAndCopy(src, dst) {
  *   can escape it with `/\.`.
  *
  * @param {Object=} paramDefaults Default values for `url` parameters. These can be overridden in
- *   `actions` methods. If a parameter value is a function, it will be executed every time
- *   when a param value needs to be obtained for a request (unless the param was overridden).
+ *   `actions` methods. If a parameter value is a function, it will be called every time
+ *   a param value needs to be obtained for a request (unless the param was overridden). The function
+ *   will be passed the current data value as an argument.
  *
  *   Each key value in the parameter object is first bound to url template if present and then any
  *   excess keys are appended to the url search query after the `?`.
@@ -108,10 +124,13 @@ function shallowClearAndCopy(src, dst) {
  *   Given a template `/path/:verb` and parameter `{verb:'greet', salutation:'Hello'}` results in
  *   URL `/path/greet?salutation=Hello`.
  *
- *   If the parameter value is prefixed with `@` then the value for that parameter will be extracted
- *   from the corresponding property on the `data` object (provided when calling an action method).
+ *   If the parameter value is prefixed with `@`, then the value for that parameter will be
+ *   extracted from the corresponding property on the `data` object (provided when calling a
+ *   "non-GET" action method).
  *   For example, if the `defaultParam` object is `{someParam: '@someProp'}` then the value of
  *   `someParam` will be `data.someProp`.
+ *   Note that the parameter will be ignored, when calling a "GET" action method (i.e. an action
+ *   method that does not accept a request body)
  *
  * @param {Object.<Object>=} actions Hash with declaration of custom actions that should extend
  *   the default set of resource actions. The declaration should be created in the format of {@link
@@ -128,8 +147,9 @@ function shallowClearAndCopy(src, dst) {
  *   - **`method`** – {string} – Case insensitive HTTP method (e.g. `GET`, `POST`, `PUT`,
  *     `DELETE`, `JSONP`, etc).
  *   - **`params`** – {Object=} – Optional set of pre-bound parameters for this action. If any of
- *     the parameter value is a function, it will be executed every time when a param value needs to
- *     be obtained for a request (unless the param was overridden).
+ *     the parameter value is a function, it will be called every time when a param value needs to
+ *     be obtained for a request (unless the param was overridden). The function will be passed the
+ *     current data value as an argument.
  *   - **`url`** – {string} – action specific `url` override. The url templating is supported just
  *     like for the resource-level urls.
  *   - **`isArray`** – {boolean=} – If true then the returned object for this action is an array,
@@ -160,7 +180,6 @@ function shallowClearAndCopy(src, dst) {
  *     will be cancelled (if not already completed) by calling `$cancelRequest()` on the call's
  *     return value. Calling `$cancelRequest()` for a non-cancellable or an already
  *     completed/cancelled request will have no effect.<br />
- *     **Note:** If a timeout is specified in millisecondes, `cancellable` is ignored.
  *   - **`withCredentials`** - `{boolean}` - whether to set the `withCredentials` flag on the
  *     XHR object. See
  *     [requests with credentials](https://developer.mozilla.org/en/http_access_control#section_5)
@@ -236,7 +255,7 @@ function shallowClearAndCopy(src, dst) {
  *     {@link ngRoute.$routeProvider resolve section of $routeProvider.when()} to defer view
  *     rendering until the resource(s) are loaded.
  *
- *     On failure, the promise is resolved with the {@link ng.$http http response} object, without
+ *     On failure, the promise is rejected with the {@link ng.$http http response} object, without
  *     the `resource` property.
  *
  *     If an interceptor object was provided, the promise will instead be resolved with the value
@@ -250,6 +269,14 @@ function shallowClearAndCopy(src, dst) {
  *
  *   - `$cancelRequest`: If there is a cancellable, pending request related to the instance or
  *      collection, calling this method will abort the request.
+ *
+ *   The Resource instances have these additional methods:
+ *
+ *   - `toJSON`: It returns a simple object without any of the extra properties added as part of
+ *     the Resource API. This object can be serialized through {@link angular.toJson} safely
+ *     without attaching Angular-specific fields. Notice that `JSON.stringify` (and
+ *     `angular.toJson`) automatically use this method when serializing a Resource instance
+ *     (see [MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify#toJSON()_behavior)).
  *
  * @example
  *
@@ -402,9 +429,77 @@ angular.module('ngResource', ['ng']).
     var PROTOCOL_AND_DOMAIN_REGEX = /^https?:\/\/[^\/]*/;
     var provider = this;
 
+    /**
+     * @ngdoc property
+     * @name $resourceProvider#defaults
+     * @description
+     * Object containing default options used when creating `$resource` instances.
+     *
+     * The default values satisfy a wide range of usecases, but you may choose to overwrite any of
+     * them to further customize your instances. The available properties are:
+     *
+     * - **stripTrailingSlashes** – `{boolean}` – If true, then the trailing slashes from any
+     *   calculated URL will be stripped.<br />
+     *   (Defaults to true.)
+     * - **cancellable** – `{boolean}` – If true, the request made by a "non-instance" call will be
+     *   cancelled (if not already completed) by calling `$cancelRequest()` on the call's return
+     *   value. For more details, see {@link ngResource.$resource}. This can be overwritten per
+     *   resource class or action.<br />
+     *   (Defaults to false.)
+     * - **actions** - `{Object.<Object>}` - A hash with default actions declarations. Actions are
+     *   high-level methods corresponding to RESTful actions/methods on resources. An action may
+     *   specify what HTTP method to use, what URL to hit, if the return value will be a single
+     *   object or a collection (array) of objects etc. For more details, see
+     *   {@link ngResource.$resource}. The actions can also be enhanced or overwritten per resource
+     *   class.<br />
+     *   The default actions are:
+     *   ```js
+     *   {
+     *     get: {method: 'GET'},
+     *     save: {method: 'POST'},
+     *     query: {method: 'GET', isArray: true},
+     *     remove: {method: 'DELETE'},
+     *     delete: {method: 'DELETE'}
+     *   }
+     *   ```
+     *
+     * #### Example
+     *
+     * For example, you can specify a new `update` action that uses the `PUT` HTTP verb:
+     *
+     * ```js
+     *   angular.
+     *     module('myApp').
+     *     config(['resourceProvider', function ($resourceProvider) {
+     *       $resourceProvider.defaults.actions.update = {
+     *         method: 'PUT'
+     *       };
+     *     });
+     * ```
+     *
+     * Or you can even overwrite the whole `actions` list and specify your own:
+     *
+     * ```js
+     *   angular.
+     *     module('myApp').
+     *     config(['resourceProvider', function ($resourceProvider) {
+     *       $resourceProvider.defaults.actions = {
+     *         create: {method: 'POST'}
+     *         get:    {method: 'GET'},
+     *         getAll: {method: 'GET', isArray:true},
+     *         update: {method: 'PUT'},
+     *         delete: {method: 'DELETE'}
+     *       };
+     *     });
+     * ```
+     *
+     */
     this.defaults = {
       // Strip slashes by default
       stripTrailingSlashes: true,
+
+      // Make non-instance requests cancellable (via `$cancelRequest()`)
+      cancellable: false,
 
       // Default actions configuration
       actions: {
@@ -416,52 +511,15 @@ angular.module('ngResource', ['ng']).
       }
     };
 
-    this.$get = ['$http', '$log', '$q', function($http, $log, $q) {
+    this.$get = ['$http', '$log', '$q', '$timeout', function($http, $log, $q, $timeout) {
 
       var noop = angular.noop,
-        forEach = angular.forEach,
-        extend = angular.extend,
-        copy = angular.copy,
-        isFunction = angular.isFunction;
-
-      /**
-       * We need our custom method because encodeURIComponent is too aggressive and doesn't follow
-       * http://www.ietf.org/rfc/rfc3986.txt with regards to the character set
-       * (pchar) allowed in path segments:
-       *    segment       = *pchar
-       *    pchar         = unreserved / pct-encoded / sub-delims / ":" / "@"
-       *    pct-encoded   = "%" HEXDIG HEXDIG
-       *    unreserved    = ALPHA / DIGIT / "-" / "." / "_" / "~"
-       *    sub-delims    = "!" / "$" / "&" / "'" / "(" / ")"
-       *                     / "*" / "+" / "," / ";" / "="
-       */
-      function encodeUriSegment(val) {
-        return encodeUriQuery(val, true).
-          replace(/%26/gi, '&').
-          replace(/%3D/gi, '=').
-          replace(/%2B/gi, '+');
-      }
-
-
-      /**
-       * This method is intended for encoding *key* or *value* parts of query component. We need a
-       * custom method because encodeURIComponent is too aggressive and encodes stuff that doesn't
-       * have to be encoded per http://tools.ietf.org/html/rfc3986:
-       *    query       = *( pchar / "/" / "?" )
-       *    pchar         = unreserved / pct-encoded / sub-delims / ":" / "@"
-       *    unreserved    = ALPHA / DIGIT / "-" / "." / "_" / "~"
-       *    pct-encoded   = "%" HEXDIG HEXDIG
-       *    sub-delims    = "!" / "$" / "&" / "'" / "(" / ")"
-       *                     / "*" / "+" / "," / ";" / "="
-       */
-      function encodeUriQuery(val, pctEncodeSpaces) {
-        return encodeURIComponent(val).
-          replace(/%40/gi, '@').
-          replace(/%3A/gi, ':').
-          replace(/%24/g, '$').
-          replace(/%2C/gi, ',').
-          replace(/%20/g, (pctEncodeSpaces ? '%20' : '+'));
-      }
+          forEach = angular.forEach,
+          extend = angular.extend,
+          copy = angular.copy,
+          isFunction = angular.isFunction,
+          encodeUriQuery = angular.$$encodeUriQuery,
+          encodeUriSegment = angular.$$encodeUriSegment;
 
       function Route(template, defaults) {
         this.template = template;
@@ -477,7 +535,7 @@ angular.module('ngResource', ['ng']).
             encodedVal,
             protocolAndDomain = '';
 
-          var urlParams = self.urlParams = {};
+          var urlParams = self.urlParams = Object.create(null);
           forEach(url.split(/\W/), function(param) {
             if (param === 'hasOwnProperty') {
               throw $resourceMinErr('badname', "hasOwnProperty is not a valid parameter name.");
@@ -510,7 +568,7 @@ angular.module('ngResource', ['ng']).
             } else {
               url = url.replace(new RegExp("(\/?):" + urlParam + "(\\W|$)", "g"), function(match,
                   leadingSlashes, tail) {
-                if (tail.charAt(0) == '/') {
+                if (tail.charAt(0) === '/') {
                   return tail;
                 } else {
                   return leadingSlashes + tail;
@@ -551,8 +609,8 @@ angular.module('ngResource', ['ng']).
           var ids = {};
           actionParams = extend({}, paramDefaults, actionParams);
           forEach(actionParams, function(value, key) {
-            if (isFunction(value)) { value = value(); }
-            ids[key] = value && value.charAt && value.charAt(0) == '@' ?
+            if (isFunction(value)) { value = value(data); }
+            ids[key] = value && value.charAt && value.charAt(0) === '@' ?
               lookupDottedPath(data, value.substr(1)) : value;
           });
           return ids;
@@ -575,20 +633,19 @@ angular.module('ngResource', ['ng']).
 
         forEach(actions, function(action, name) {
           var hasBody = /^(POST|PUT|PATCH)$/i.test(action.method);
-          var cancellable = false;
+          var numericTimeout = action.timeout;
+          var cancellable = angular.isDefined(action.cancellable) ? action.cancellable :
+              (options && angular.isDefined(options.cancellable)) ? options.cancellable :
+              provider.defaults.cancellable;
 
-          if (!angular.isNumber(action.timeout)) {
-            if (action.timeout) {
-              $log.debug('ngResource:\n' +
-                         '  Only numeric values are allowed as `timeout`.\n' +
-                         '  Promises are not supported in $resource, because the same value would ' +
-                         'be used for multiple requests. If you are looking for a way to cancel ' +
-                         'requests, you should use the `cancellable` option.');
-              delete action.timeout;
-            }
-            cancellable = angular.isDefined(action.cancellable) ? action.cancellable :
-                         (options && angular.isDefined(options.cancellable)) ? options.cancellable :
-                         provider.defaults.cancellable;
+          if (numericTimeout && !angular.isNumber(numericTimeout)) {
+            $log.debug('ngResource:\n' +
+                       '  Only numeric values are allowed as `timeout`.\n' +
+                       '  Promises are not supported in $resource, because the same value would ' +
+                       'be used for multiple requests. If you are looking for a way to cancel ' +
+                       'requests, you should use the `cancellable` option.');
+            delete action.timeout;
+            numericTimeout = null;
           }
 
           Resource[name] = function(a1, a2, a3, a4) {
@@ -638,7 +695,10 @@ angular.module('ngResource', ['ng']).
               defaultResponseInterceptor;
             var responseErrorInterceptor = action.interceptor && action.interceptor.responseError ||
               undefined;
+            var hasError = !!error;
+            var hasResponseErrorInterceptor = !!responseErrorInterceptor;
             var timeoutDeferred;
+            var numericTimeoutPromise;
 
             forEach(action, function(value, key) {
               switch (key) {
@@ -656,6 +716,10 @@ angular.module('ngResource', ['ng']).
             if (!isInstanceCall && cancellable) {
               timeoutDeferred = $q.defer();
               httpConfig.timeout = timeoutDeferred.promise;
+
+              if (numericTimeout) {
+                numericTimeoutPromise = $timeout(timeoutDeferred.resolve, numericTimeout);
+              }
             }
 
             if (hasBody) httpConfig.data = data;
@@ -697,16 +761,14 @@ angular.module('ngResource', ['ng']).
               response.resource = value;
 
               return response;
-            }, function(response) {
-              (error || noop)(response);
-              return $q.reject(response);
             });
 
-            promise.finally(function() {
+            promise = promise['finally'](function() {
               value.$resolved = true;
               if (!isInstanceCall && cancellable) {
                 value.$cancelRequest = angular.noop;
-                timeoutDeferred = httpConfig.timeout = null;
+                $timeout.cancel(numericTimeoutPromise);
+                timeoutDeferred = numericTimeoutPromise = httpConfig.timeout = null;
               }
             });
 
@@ -716,7 +778,19 @@ angular.module('ngResource', ['ng']).
                 (success || noop)(value, response.headers);
                 return value;
               },
-              responseErrorInterceptor);
+              (hasError || hasResponseErrorInterceptor) ?
+              function(response) {
+                if (hasError) error(response);
+                return hasResponseErrorInterceptor ?
+                    responseErrorInterceptor(response) :
+                    $q.reject(response);
+              } :
+              undefined);
+            if (hasError && !hasResponseErrorInterceptor) {
+              // Avoid `Possibly Unhandled Rejection` error,
+              // but still fulfill the returned promise with a rejection
+              promise.catch(noop);
+            }
 
             if (!isInstanceCall) {
               // we are creating instance / collection
@@ -724,13 +798,18 @@ angular.module('ngResource', ['ng']).
               // - return the instance / collection
               value.$promise = promise;
               value.$resolved = false;
-              if (cancellable) value.$cancelRequest = timeoutDeferred.resolve;
+              if (cancellable) value.$cancelRequest = cancelRequest;
 
               return value;
             }
 
             // instance call
             return promise;
+
+            function cancelRequest(value) {
+              promise.catch(noop);
+              timeoutDeferred.resolve(value);
+            }
           };
 
 

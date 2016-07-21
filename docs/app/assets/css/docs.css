@@ -124,7 +124,7 @@ h1,h2,h3,h4,h5,h6 {
   font-size:1.2em;
   padding:0;
   margin:0;
-  border-bottom:1px soild #aaa;
+  border-bottom:1px solid #aaa;
   margin-bottom:5px;
 }
 
@@ -645,6 +645,11 @@ ul.events > li {
 .table > tbody > tr.head > th {
   border-bottom: 2px solid #ddd;
   padding-top: 50px;
+}
+
+.diagram {
+  margin-bottom: 10px;
+  margin-top: 30px;
 }
 
 @media only screen and (min-width: 769px) and (max-width: 991px) {

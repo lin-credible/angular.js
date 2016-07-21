@@ -1,5 +1,7 @@
 'use strict';
 
+/* globals support: false */
+
 describe('injector', function() {
   var providers;
   var injector;
@@ -82,14 +84,14 @@ describe('injector', function() {
   });
 
 
-  it('should provide the caller name if given', function(done) {
+  it('should provide the caller name if given', function() {
     expect(function() {
       injector.get('idontexist', 'callerName');
     }).toThrowMinErr("$injector", "unpr", "Unknown provider: idontexistProvider <- idontexist <- callerName");
   });
 
 
-  it('should provide the caller name for controllers', function(done) {
+  it('should provide the caller name for controllers', function() {
     controllerProvider.register('myCtrl', function(idontexist) {});
     var $controller = injector.get('$controller');
     expect(function() {
@@ -239,6 +241,12 @@ describe('injector', function() {
       expect($f_n0.$inject).toEqual(['$a_']);
     });
 
+    it('should handle functions with overridden toString', function() {
+      function fn(a) {}
+      fn.toString = function() { return 'fn'; };
+      expect(annotate(fn)).toEqual(['a']);
+      expect(fn.$inject).toEqual(['a']);
+    });
 
     it('should throw on non function arg', function() {
       expect(function() {
@@ -247,47 +255,93 @@ describe('injector', function() {
     });
 
 
-    // Only Chrome and Firefox support this syntax.
-    if (/chrome|firefox/i.test(navigator.userAgent)) {
-      describe('es6', function() {
-        /*jshint -W061 */
+    describe('es6', function() {
+      /*jshint -W061 */
+      if (support.ES6Function) {
         // The functions are generated using `eval` as just having the ES6 syntax can break some browsers.
         it('should be possible to annotate functions that are declared using ES6 syntax', function() {
           expect(annotate(eval('({ fn(x) { return; } })').fn)).toEqual(['x']);
         });
+      }
 
 
+      if (support.fatArrow) {
         it('should create $inject for arrow functions', function() {
           expect(annotate(eval('(a, b) => a'))).toEqual(['a', 'b']);
         });
+      }
 
 
+      if (support.fatArrow) {
         it('should create $inject for arrow functions with no parenthesis', function() {
           expect(annotate(eval('a => a'))).toEqual(['a']);
         });
+      }
 
 
+      if (support.fatArrow) {
         it('should take args before first arrow', function() {
           expect(annotate(eval('a => b => b'))).toEqual(['a']);
         });
 
+        // Support: Chrome 50-51 only
+        // TODO (gkalpak): Remove when Chrome v52 is relased.
+        // it('should be able to inject fat-arrow function', function() {
+        //   inject(($injector) => {
+        //     expect($injector).toBeDefined();
+        //   });
+        // });
+      }
+
+      if (support.classes) {
         it('should be possible to instantiate ES6 classes', function() {
-          // Only Chrome (not even the FF we use) supports ES6 classes.
-          if (!/chrome/i.test(navigator.userAgent)) return;
           providers('a', function() { return 'a-value'; });
-          var clazz = eval('(class { constructor(a) { this.a = a; } aVal() { return this.a; } })');
-          var instance = injector.instantiate(clazz);
-          expect(instance).toEqual({a: 'a-value'});
+          var Clazz = eval('(class { constructor(a) { this.a = a; } aVal() { return this.a; } })');
+          var instance = injector.instantiate(Clazz);
+          expect(instance).toEqual(new Clazz('a-value'));
           expect(instance.aVal()).toEqual('a-value');
         });
-        /*jshint +W061 */
-      });
-    }
+
+        if (/chrome/.test(navigator.userAgent)) {
+          they('should detect ES6 classes regardless of whitespace/comments ($prop)', [
+            'class Test {}',
+            'class Test{}',
+            'class //<--ES6 stuff\nTest {}',
+            'class//<--ES6 stuff\nTest {}',
+            'class {}',
+            'class{}',
+            'class //<--ES6 stuff\n {}',
+            'class//<--ES6 stuff\n {}',
+            'class/* Test */{}',
+            'class /* Test */ {}'
+          ], function(classDefinition) {
+            var Clazz = eval('(' + classDefinition + ')');
+            var instance = injector.invoke(Clazz);
+
+            expect(instance).toEqual(jasmine.any(Clazz));
+          });
+        }
+
+        // Support: Chrome 50-51 only
+        // TODO (gkalpak): Remove when Chrome v52 is relased.
+        // it('should be able to invoke classes', function() {
+        //   class Test {
+        //     constructor($injector) {
+        //       this.$injector = $injector;
+        //     }
+        //   }
+        //   var instance = injector.invoke(Test, null, null, 'Test');
+
+        //   expect(instance.$injector).toBe(injector);
+        // });
+      }
+      /*jshint +W061 */
+    });
 
 
     it('should publish annotate API', function() {
       expect(angular.mock.$$annotate).toBe(annotate);
-      spyOn(angular.mock, '$$annotate').andCallThrough();
+      spyOn(angular.mock, '$$annotate').and.callThrough();
       function fn() {}
       injector.annotate(fn);
       expect(angular.mock.$$annotate).toHaveBeenCalledWith(fn);
@@ -1005,7 +1059,7 @@ describe('injector', function() {
         createInjector([function($provide) {
           $provide.value('name', 'angular');
         }, instanceLookupInModule]);
-      }).toThrowMatching(/\[\$injector:unpr] Unknown provider: name/);
+      }).toThrowError(/\[\$injector:unpr] Unknown provider: name/);
     });
   });
 });

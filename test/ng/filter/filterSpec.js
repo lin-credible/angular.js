@@ -192,6 +192,25 @@ describe('Filter: filter', function() {
   });
 
 
+  it('should allow specifying the special "match-all" property', function() {
+    var items = [
+      {foo: 'baz'},
+      {bar: 'baz'},
+      {'%': 'no dollar'}
+    ];
+
+    expect(filter(items, {$: 'baz'}).length).toBe(2);
+    expect(filter(items, {$: 'baz'}, null, '%').length).toBe(0);
+
+    expect(filter(items, {'%': 'dollar'}).length).toBe(1);
+    expect(filter(items, {$: 'dollar'}).length).toBe(1);
+    expect(filter(items, {$: 'dollar'}, null, '%').length).toBe(0);
+
+    expect(filter(items, {'%': 'baz'}).length).toBe(0);
+    expect(filter(items, {'%': 'baz'}, null, '%').length).toBe(2);
+  });
+
+
   it('should match any properties in the nested object for given deep "$" property', function() {
     var items = [{person: {name: 'Annet', email: 'annet@example.com'}},
                  {person: {name: 'Billy', email: 'me@billy.com'}},
@@ -315,7 +334,7 @@ describe('Filter: filter', function() {
     expect(filter(items, expr, true).length).toBe(1);
     expect(filter(items, expr, true)[0]).toBe(items[0]);
 
-    // Inherited function proprties
+    // Inherited function properties
     function Expr(text) {
         this.text = text;
     }
@@ -425,6 +444,7 @@ describe('Filter: filter', function() {
       toThrowMinErr('filter', 'notarray', 'Expected array but received: {"toString":null,"valueOf":null}');
   });
 
+
   it('should not throw an error if used with an array like object', function() {
     function getArguments() {
       return arguments;
@@ -439,7 +459,6 @@ describe('Filter: filter', function() {
     expect(filter(argsObj, 'i').length).toBe(2);
     expect(filter('abc','b').length).toBe(1);
     expect(filter(nodeList, nodeFilterPredicate).length).toBe(1);
-
   });
 
 
